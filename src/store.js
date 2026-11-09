@@ -14,8 +14,9 @@ const DEFAULT_SPEC = {
   locale: 'auto', timezone: 'auto', canvasSeed: null, canvasNoise: false,
   hardwareConcurrency: null, deviceMemory: null, webrtc: 'auto', colorScheme: 'light',
   gpuPreset: 'native', audioNoise: false, fingerprintSeed: null,
+  kernelFontMode: 'native', kernelFonts: null,
 };
-const pick = value => Object.fromEntries(Object.keys(DEFAULT_SPEC).filter(k => Object.hasOwn(value, k)).map(k => [k, value[k]]));
+const pick = value => Object.fromEntries(Object.keys(DEFAULT_SPEC).filter(k => k !== 'kernelFonts' && Object.hasOwn(value, k)).map(k => [k, value[k]]));
 class ProfileStore {
   constructor(dataDir, secretStorage) {
     this.dataDir = dataDir;

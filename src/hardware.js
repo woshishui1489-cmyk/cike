@@ -19,19 +19,28 @@ const CPU_VALUES = [2, 4, 6, 8, 12, 16, 24, 32];
 const MEMORY_VALUES = [0.5, 1, 2, 4, 8];
 function hardwareOptions() {
   return { cpus: CPU_VALUES, memories: MEMORY_VALUES,
-    gpus: Object.entries(GPU_PRESETS).map(([id, gpu]) => ({ id, name: gpu.name })) };
+    gpus: Object.entries(GPU_PRESETS).map(([id, gpu]) => ({ id, name: gpu.name })),
+    kernelFontModes: require('./native-fonts').fontModes() };
 }
-function generateHardware() {
+function generateHardware(mode = 'hardware') {
+  if (!['hardware', 'kernel'].includes(mode)) throw Object.assign(new Error('无效的指纹策略'), { status: 400 });
   const choose = list => list[crypto.randomInt(list.length)];
+  if (mode === 'kernel') {
+    const cores = require('os').availableParallelism();
+    const cpus = CPU_VALUES.filter(value => value <= cores);
+    return completeHardware({ fingerprintMode: 'kernel', hardwareConcurrency: choose(cpus.length ? cpus : [2]),
+      gpuPreset: 'native', fingerprintSeed: crypto.randomBytes(16).toString('hex'),
+      kernelFontMode: process.platform === 'win32' ? 'windows-v1' : 'native' });
+  }
   const gpuPreset = choose(Object.keys(GPU_PRESETS).filter(id => id !== 'native'));
   return { fingerprintMode: 'hardware', hardwareConcurrency: choose([4, 6, 8, 12, 16]), deviceMemory: choose([4, 8]),
     gpuPreset, canvasNoise: true, audioNoise: true, fingerprintSeed: crypto.randomBytes(16).toString('hex') };
 }
 function completeHardware(profile, patch = {}) {
-  if (profile.fingerprintMode === 'kernel') return { ...profile,
+  if (profile.fingerprintMode === 'kernel') return require('./native-fonts').completeKernelFonts({ ...profile,
     hardwareConcurrency: profile.hardwareConcurrency ?? 8, deviceMemory: null,
     gpuPreset: profile.gpuPreset || 'native', canvasNoise: false, audioNoise: false,
-    fingerprintSeed: profile.fingerprintSeed || crypto.randomBytes(16).toString('hex') };
+    fingerprintSeed: profile.fingerprintSeed || crypto.randomBytes(16).toString('hex') });
   if (profile.fingerprintMode !== 'hardware') return profile;
   return { ...profile, hardwareConcurrency: profile.hardwareConcurrency ?? 8, deviceMemory: profile.deviceMemory ?? 8,
     gpuPreset: profile.gpuPreset && profile.gpuPreset !== 'native' ? profile.gpuPreset : (Object.hasOwn(patch, 'gpuPreset') ? patch.gpuPreset : 'intel-uhd-630'),

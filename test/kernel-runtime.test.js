@@ -18,6 +18,14 @@ async function observe() {
   context.fillStyle = 'rgb(30,160,90)'; context.fillRect(0, 0, 16, 16);
   snapshot.cleanPixels = context.getImageData(0, 0, 16, 16).data.every((n, i) => n === [30, 160, 90, 255][i % 4]);
   snapshot.canvasNative = native(Object.getPrototypeOf(context).getImageData);
+  const textCanvas = new OffscreenCanvas(280, 40), text = textCanvas.getContext('2d');
+  snapshot.fonts = ['Arial', 'Microsoft YaHei', 'Garamond', 'Cascadia Code', 'Fira Sans', 'Roboto', 'Source Code Pro', 'Open Sans', 'JetBrains Mono'].map(font => {
+    text.clearRect(0, 0, 280, 40); text.font = `20px "${font}", monospace`;
+    text.fillText('CIKE fonts 中文 Wmi 012345', 0, 28);
+    let hash = 2166136261;
+    for (const value of text.getImageData(0, 0, 280, 40).data) hash = Math.imul(hash ^ value, 16777619) >>> 0;
+    return { font, width: text.measureText('CIKE fonts 中文 Wmi 012345').width, hash };
+  });
   snapshot.headers = await fetch(location.origin + '/headers').then(response => response.json()).then(headers => ({ ua: headers['user-agent'], language: headers['accept-language']?.split(',')[0] }));
   return snapshot;
 }
@@ -52,8 +60,11 @@ test('native core changes hardware without replacing APIs, agrees across workers
     const origin = `http://127.0.0.1:${server.address().port}`;
     const store = new ProfileStore(dir), manager = new BrowserManager(store, null, null, { startPage: false, downloadsDirectory: downloads });
     try {
-      const a = store.create({ fingerprintMode: 'kernel', hardwareConcurrency: 4, gpuPreset: 'native', locale: 'en-US', timezone: 'UTC' });
-      const b = store.create({ fingerprintMode: 'kernel', hardwareConcurrency: 16, gpuPreset: 'native', locale: 'en-US', timezone: 'UTC' });
+      const fontMode = process.platform === 'win32' ? 'windows-v1' : 'native';
+      const a = store.create({ fingerprintMode: 'kernel', hardwareConcurrency: 4, gpuPreset: 'native', locale: 'en-us', timezone: 'UTC',
+        kernelFontMode: fontMode, fingerprintSeed: '0123456789abcdef0123456789abcdef' });
+      const b = store.create({ fingerprintMode: 'kernel', hardwareConcurrency: 16, gpuPreset: 'native', locale: 'en-US', timezone: 'UTC',
+        kernelFontMode: fontMode, fingerprintSeed: 'fedcba9876543210fedcba9876543210' });
       await manager.open(a.id, { headless: true });
       const context = manager.getContext(a.id), page = await context.newPage(); await page.goto(origin);
       const main = await page.evaluate(observe);
@@ -71,7 +82,7 @@ test('native core changes hardware without replacing APIs, agrees across workers
         const worker = new SharedWorker('/shared.js'); worker.port.onmessage = e => { worker.port.close(); resolve(e.data); }; worker.onerror = reject;
       }));
       assert.deepEqual(shared, main);
-      const service = async () => page.evaluate(async () => {
+      const service = async (target = page) => target.evaluate(async () => {
         await navigator.serviceWorker.register('/sw.js'); const registration = await navigator.serviceWorker.ready;
         return new Promise(resolve => { const channel = new MessageChannel(); channel.port1.onmessage = e => resolve(e.data); registration.active.postMessage('probe', [channel.port2]); });
       });
@@ -100,10 +111,12 @@ test('native core changes hardware without replacing APIs, agrees across workers
       await manager.open(b.id, { headless: true });
       const other = await manager.getContext(b.id).newPage(); await other.goto(origin);
       assert.equal(await other.evaluate(() => navigator.hardwareConcurrency), 16);
+      if (process.platform === 'win32') assert.notDeepEqual((await other.evaluate(observe)).fonts, main.fonts);
       assert.equal(await other.evaluate(() => localStorage.getItem('kernel')), null);
       await manager.close(a.id); await manager.open(a.id, { headless: true });
       const restarted = await manager.getContext(a.id).newPage(); await restarted.goto(origin);
       assert.deepEqual(await restarted.evaluate(observe), main);
+      assert.deepEqual(await service(restarted), main);
       assert.deepEqual(await restarted.evaluate(() => ({ cookie: document.cookie, local: localStorage.getItem('kernel') })), { cookie: 'kernel=A', local: 'A' });
       assert.ok(fs.existsSync(path.join(store.profileDir(a.id), 'firefox', 'prefs.js')));
       assert.ok(!fs.existsSync(path.join(store.profileDir(a.id), 'Default')));

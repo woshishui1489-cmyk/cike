@@ -151,7 +151,7 @@ function buildBackend(dataDir = DATA_DIR, options = {}) {
     ctx.body = { ok: true, settings: settings.get() };
   });
   router.get('/fingerprints/options', ctx => { ctx.body = { ok: true, ...require('./hardware').hardwareOptions() }; });
-  router.post('/fingerprints/generate', ctx => { ctx.body = { ok: true, fingerprint: require('./hardware').generateHardware() }; });
+  router.post('/fingerprints/generate', ctx => { ctx.body = { ok: true, fingerprint: require('./hardware').generateHardware(ctx.request.body?.fingerprintMode ?? 'hardware') }; });
   router.patch('/browserWindows', ctx => {
     const state = ctx.request.body?.state;
     if (!['normal', 'maximized', 'fullscreen'].includes(state)) ctx.throw(400, '无效的窗口状态');

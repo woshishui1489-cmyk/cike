@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { ProfileStore } = require('../src/store');
-const { nativeEnvironment, nativeAsset } = require('../src/nativecore');
+const { nativeEnvironment, nativeAsset, nativeConfig } = require('../src/nativecore');
 const { buildBackend } = require('../src/server');
 const { createWindowBridge } = require('../src/native-window-bridge');
 test('switching core keeps Chrome data, validates hardware and stores native settings without script noise', () => {
@@ -25,6 +25,56 @@ test('switching core keeps Chrome data, validates hardware and stores native set
     assert.deepEqual(JSON.parse(env.CAMOU_CONFIG_1).addons, ['C:\\用户\\内核']);
     assert.equal(nativeAsset('win32', 'x64').sha256.length, 64);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('kernel font identities are opt-in, stable across edits and reload, and change only on regeneration', { skip: process.platform !== 'win32' }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cike-kernel-fonts-'));
+  try {
+    const store = new ProfileStore(dir), seed = '0123456789abcdef0123456789abcdef';
+    const old = store.create({ fingerprintMode: 'kernel', fingerprintSeed: seed });
+    assert.equal(nativeConfig(old).fonts, undefined);
+    const a = store.create({ fingerprintMode: 'kernel', fingerprintSeed: seed, kernelFontMode: 'windows-v1' });
+    const config = nativeConfig(a);
+    assert.ok(config.fonts.includes('Arial')); assert.ok(config.fonts.includes('Microsoft YaHei'));
+    assert.equal(new Set(config.fonts).size, config.fonts.length);
+    assert.deepEqual(nativeConfig(store.update(a.id, { name: 'renamed', group: 'work' })).fonts, config.fonts);
+    assert.deepEqual(nativeConfig(new ProfileStore(dir).get(a.id)).fonts, config.fonts);
+    const regenerated = store.update(a.id, { fingerprintSeed: 'fedcba9876543210fedcba9876543210' });
+    assert.notDeepEqual(nativeConfig(regenerated).fonts, config.fonts);
+    assert.equal(nativeConfig(store.update(a.id, { kernelFontMode: 'native' })).fonts, undefined);
+    assert.deepEqual(nativeConfig(store.update(a.id, { kernelFontMode: 'windows-v1' })).fonts, nativeConfig(regenerated).fonts);
+    assert.throws(() => store.update(a.id, { fingerprintSeed: 'invalid' }), /种子/);
+    assert.throws(() => store.update(a.id, { kernelFontMode: 'unknown' }), /字体/);
+    const corrupted = structuredClone(regenerated); corrupted.kernelFonts.families = ['Unknown font'];
+    assert.throws(() => nativeConfig(corrupted), /字体/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('kernel configuration canonicalizes language consistently in navigator and HTTP headers', () => {
+  const config = nativeConfig({ hardwareConcurrency: 8, gpuPreset: 'native', locale: 'en-us', timezone: 'UTC' });
+  assert.equal(config['navigator.language'], 'en-US');
+  assert.equal(config['headers.Accept-Language'], 'en-US,en;q=0.9');
+  assert.equal(config['locale:all'], 'en-US, en');
+});
+
+test('fingerprint generator returns mode-specific choices and rejects unknown strategies', async () => {
+  const http = require('http'), dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cike-kernel-generate-'));
+  const backend = buildBackend(dir), server = http.createServer(backend.app.callback());
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const generate = body => fetch(`http://127.0.0.1:${server.address().port}/api/fingerprints/generate`, {
+    method: 'POST', headers: { 'x-api-token': backend.token, 'content-type': 'application/json' }, body: JSON.stringify(body),
+  });
+  try {
+    const kernel = await (await generate({ fingerprintMode: 'kernel' })).json();
+    assert.equal(kernel.fingerprint.fingerprintMode, 'kernel'); assert.equal(kernel.fingerprint.gpuPreset, 'native');
+    assert.equal(kernel.fingerprint.deviceMemory, null); assert.equal(kernel.fingerprint.canvasNoise, false);
+    const profile = backend.store.create(kernel.fingerprint);
+    assert.equal(profile.fingerprintSeed, kernel.fingerprint.fingerprintSeed);
+    if (process.platform === 'win32') assert.ok(nativeConfig(profile).fonts.length > 0);
+    const hardware = await (await generate({})).json();
+    assert.equal(hardware.fingerprint.fingerprintMode, 'hardware'); assert.equal(hardware.fingerprint.canvasNoise, true);
+    assert.equal((await generate({ fingerprintMode: 'unknown' })).status, 400);
+  } finally { await new Promise(resolve => server.close(resolve)); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 test('window extension capability cannot read the general API, expires, and rejects foreign origins', async () => {
   const http = require('http');

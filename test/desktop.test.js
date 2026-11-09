@@ -177,6 +177,14 @@ test('sandboxed desktop UI can authenticate, migrate profiles and protect secret
     assert.equal(await page.locator('#n-hardware-cpu').isVisible(), true);
     assert.equal(await page.locator('#n-software-noise').isVisible(), false);
     assert.equal(await page.locator('#n-software-memory').isVisible(), false);
+    await page.locator('#n-hardware-generate').click();
+    await page.waitForFunction(() => document.querySelector('#n-fingerprint-seed')?.value.length === 32);
+    assert.equal(await page.locator('#n-hardware-gpu').inputValue(), 'native');
+    const fontMode = process.platform === 'win32' ? 'windows-v1' : 'native';
+    assert.equal(await page.locator('#n-kernel-font-mode').inputValue(), fontMode);
+    await page.locator('#n-fingerprint-mode').selectOption('hardware');
+    assert.equal(await page.locator('#n-hardware-memory').inputValue(), '4');
+    await page.locator('#n-fingerprint-mode').selectOption('kernel');
     await page.locator('#n-hardware-cpu').selectOption('4');
     await page.locator('#n-hardware-gpu').selectOption('native');
     const kernelCreated = page.waitForResponse(response => response.url().endsWith('/api/profiles') && response.request().method() === 'POST');
@@ -184,7 +192,15 @@ test('sandboxed desktop UI can authenticate, migrate profiles and protect secret
     assert.equal((await kernelCreated).status(), 200);
     const kernel = Object.values(JSON.parse(fs.readFileSync(profiles.file))).find(record => record.fingerprintMode === 'kernel');
     assert.equal(kernel.hardwareConcurrency, 4); assert.equal(kernel.deviceMemory, null); assert.equal(kernel.canvasNoise, false); assert.equal(kernel.audioNoise, false);
+    assert.equal(kernel.kernelFontMode, fontMode);
+    if (process.platform === 'win32') assert.ok(kernel.kernelFonts.families.includes('Microsoft YaHei'));
     const kernelCard = page.locator('.env-card').filter({ has: page.locator('.name', { hasText: /^3$/ }) });
+    await kernelCard.locator('[data-act="edit"]').click();
+    await page.locator('#f-fingerprint-mode').waitFor({ state: 'attached' });
+    assert.equal(await page.locator('#f-kernel-font-mode').inputValue(), fontMode);
+    const savedKernel = page.waitForResponse(response => response.url().includes('/api/profiles/' + kernel.id) && response.request().method() === 'PATCH');
+    await page.locator('#m-save').click(); assert.equal((await savedKernel).status(), 200);
+    assert.deepEqual(JSON.parse(fs.readFileSync(profiles.file))[kernel.id].kernelFonts, kernel.kernelFonts);
     if (process.env.CIKE_CAMOUFOX_EXECUTABLE) {
       await kernelCard.locator('[data-act="open"]').click();
       await kernelCard.getByText('运行中', { exact: true }).waitFor({ timeout: 40000 });

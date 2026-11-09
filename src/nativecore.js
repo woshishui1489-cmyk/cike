@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { GPU_PRESETS, CPU_VALUES } = require('./hardware');
+const { validateKernelFonts } = require('./native-fonts');
 
 // Pin both the browser and its automation driver. No floating "latest" binary.
 const RELEASE = 'v158.0.1-beta.41';
@@ -29,12 +30,18 @@ function validateKernel(profile) {
   if (!CPU_VALUES.includes(profile.hardwareConcurrency)) throw Object.assign(new Error('请选择有效的 CPU 线程数'), { status: 400 });
   if (!Object.hasOwn(GPU_PRESETS, profile.gpuPreset)) throw Object.assign(new Error('请选择有效的显卡标识'), { status: 400 });
   if (profile.deviceMemory != null || profile.canvasNoise || profile.audioNoise) throw Object.assign(new Error('内核模式使用 Firefox 原生内存接口、Canvas 和音频，不支持脚本噪声'), { status: 400 });
+  if (profile.fingerprintSeed != null && !/^[a-f0-9]{32}$/.test(profile.fingerprintSeed)) throw Object.assign(new Error('指纹种子格式无效'), { status: 400 });
+  validateKernelFonts(profile);
 }
 function nativeConfig(profile) {
   validateKernel(profile);
   const config = { 'navigator.hardwareConcurrency': profile.hardwareConcurrency };
-  const locale = profile.locale === 'auto' ? Intl.DateTimeFormat().resolvedOptions().locale : profile.locale;
-  config['locale:all'] = [...new Set([locale, locale.split('-')[0]])].join(', ');
+  const locale = Intl.getCanonicalLocales(profile.locale === 'auto' ? Intl.DateTimeFormat().resolvedOptions().locale : profile.locale)[0];
+  const languages = [...new Set([locale, locale.split('-')[0]])];
+  config['locale:all'] = languages.join(', ');
+  config['navigator.language'] = locale;
+  config['headers.Accept-Language'] = languages.map((language, index) => language + (index ? ';q=0.9' : '')).join(',');
+  if (profile.kernelFontMode === 'windows-v1') config.fonts = [...profile.kernelFonts.families];
   if (profile.timezone !== 'auto') config.timezone = profile.timezone;
   const gpu = GPU_PRESETS[profile.gpuPreset];
   if (gpu.vendor) { config['webGl:vendor'] = gpu.vendor; config['webGl:renderer'] = gpu.renderer; }

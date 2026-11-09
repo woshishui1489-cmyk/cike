@@ -9,11 +9,21 @@
 3. 设置 CPU 线程数。建议显卡标识保持“原生显卡”；可选显卡预设仍只改变标识，不能改变实际能力。
 4. 保存并关闭、重新打开环境。
 
+### 固定字体集（本地优化版）
+
+Windows 内核模式新增“字体策略 → 按环境固定 Windows 字体集”。字体名单在首次选择时按环境种子生成，并作为版本化快照保存在该环境配置中；改名、分组、修改代理和重启不会重新生成。旧环境默认继续使用原生字体，需手动选择后保存；切换字体策略或点击“生成另一组”会改变网站观察到的字体，应先用测试环境验证。
+
+固定名单保留基础、中日韩和回退字体，再按种子选择 8 组可选字体，名单组合最多 256 种；字体不可用时，实际可测差异还可能更少。页面、iframe 与 Worker 使用同一个内核字体配置，不注入网页脚本。不同种子可能选中相同名单，因此不保证每个环境唯一。文字的 Canvas 渲染可能随字体改变，纯色像素和音频不添加噪声。屏幕、DPI 和显卡实际能力继续采用原生行为。
+
+Windows 基础字体名称来自锁定版本的 [Camoufox essential-fonts.json](https://github.com/daijro/camoufox/blob/v158.0.1-beta.41/python/src/camoufox/essential-fonts.json)，为兼容 Windows 10 不添加 Windows 11 专属标记字体；可选字体名称来自同版本的 [fonts.json](https://github.com/daijro/camoufox/blob/v158.0.1-beta.41/python/src/camoufox/fonts.json)。这里只保存名称，不分发字体文件；实际字体和许可证由原内核包提供。
+
+“生成另一组”现在按当前策略生成参数：内核模式保持原生显卡、关闭脚本噪声，在 Windows 上启用固定字体集；生成的 CPU 读数不超过本机可用逻辑处理器数（单核主机仍以受支持的最小值 2 为下限）。这不模拟相应 CPU 的实际性能。软件层模式沿用原有生成方式。API `POST /api/fingerprints/generate` 可传 `{"fingerprintMode":"kernel"}`；省略时仍返回软件层配置。
+
 **数据与兼容性：**Firefox 使用环境目录下独立的 `firefox` 子目录；原 Chromium 的 Cookie、站点数据保留，切回 Chromium 后继续使用。两种内核之间不会自动迁移登录状态。Firefox 不支持 Chrome 扩展、Chromium CDP 调试端口和所有仅限 Chrome 的网页功能。
 
 0.10.2 可在设置中选择 Camoufox 图形渲染模式。兼容软件绘制使用 CPU 合成窗口，绕开故障的 GPU/D3D11 合成路径，保留原生网页接口；它可能改变 Canvas/WebGL 的实际结果和性能。显卡标识设置不保证对应的硬件加速能力，无法提供的 WebGL 功能不会用网页脚本补造。自动回退仅针对已识别的 Windows 图形启动崩溃，具体用法见 [Windows 说明](WINDOWS.md)。
 
-**范围：**页面、iframe、专用/模块/共享/Service Worker 共用 CPU 配置。语言与请求头由内核统一设置，时区由内核处理，UA 使用对应版本的 Firefox。Canvas、音频和字体采用原生输出，不添加种子噪声。Firefox 原本不提供 `navigator.deviceMemory`，本模式保持该接口不存在；配置编号不是网站看到的完整指纹，不保证每个环境的完整指纹都不同。
+**范围：**页面、iframe、专用/模块/共享/Service Worker 共用 CPU 配置。语言与请求头使用同一规范化语言代码，时区由内核处理，UA 使用对应版本的 Firefox。Canvas 和音频不添加种子噪声；字体默认原生，可在 Windows 上显式启用上述固定名单。Firefox 原本不提供 `navigator.deviceMemory`，本模式保持该接口不存在；配置编号不是网站看到的完整指纹，不保证每个环境的完整指纹都不同。
 
 **窗口与下载：**仍默认最大化并记住 F11 全屏。随内核加载的本地后台扩展仅管理真实窗口，没有内容脚本或可被网页读取的资源。窗口控制使用独立、随浏览器关闭失效的能力令牌；该令牌不能访问一般 API。仅随机的 `.localhost` 控制域名绕过环境代理，普通网页请求继续使用配置的代理。下载使用 Firefox 原生下载管理器，保留文件名、处理重名并保存到系统下载目录。
 
